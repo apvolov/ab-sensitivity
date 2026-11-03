@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Прототип анализа A/B тестов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --bg: #EDF1F3; --surface: #FFFFFF; --ink: #15212B; --muted: #5B6B78; --rule: #CBD5DC;
+  --teal: #0E7C86; --teal-soft: #DDEFF0; --graph: #7A8791; --graph-soft: #E6EAED;
+  --ok: #2E7D4F; --ok-soft: #E0F1E6; --warn: #9A5F0C; --warn-soft: #F6EBD8;
+  --bad: #B3261E; --bad-soft: #F8E2E0;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10171C; --surface: #172028; --ink: #E3EAEE; --muted: #93A3AE; --rule: #2B3842;
+    --teal: #45B9C3; --teal-soft: #173A3E; --graph: #8E9BA5; --graph-soft: #24303A;
+    --ok: #62B985; --ok-soft: #173327; --warn: #E0A84A; --warn-soft: #3A2D16;
+    --bad: #EF6F66; --bad-soft: #3D1D1B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10171C; --surface: #172028; --ink: #E3EAEE; --muted: #93A3AE; --rule: #2B3842;
+  --teal: #45B9C3; --teal-soft: #173A3E; --graph: #8E9BA5; --graph-soft: #24303A;
+  --ok: #62B985; --ok-soft: #173327; --warn: #E0A84A; --warn-soft: #3A2D16;
+  --bad: #EF6F66; --bad-soft: #3D1D1B;
+  color-scheme: dark;
+}
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Onest", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 15px; line-height: 1.5; font-variant-numeric: tabular-nums;
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+.top {
+  max-width: 1240px; margin: 0 auto; padding: 28px 24px 4px;
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+}
+.top h1 { font-size: 27px; line-height: 1.2; font-weight: 700; letter-spacing: -0.015em; margin: 0; }
+.top p { margin: 6px 0 0; color: var(--muted); max-width: 64ch; }
+.tabs { display: inline-flex; background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: 3px; }
+.tabs button {
+  border: 0; background: transparent; padding: 7px 16px; border-radius: 999px; cursor: pointer;
+  color: var(--muted); font-weight: 500;
+}
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--surface); }
+
+.grid {
+  max-width: 1240px; margin: 0 auto; padding: 16px 24px 56px;
+  display: grid; grid-template-columns: minmax(0, 370px) minmax(0, 1fr); gap: 24px; align-items: start;
+}
+.side, .report { min-width: 0; }
+.side {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 12px;
+  position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px);
+}
+.step { padding: 18px 18px 20px; }
+.step + .step { border-top: 1px solid var(--rule); }
+.step h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.num {
+  width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: var(--surface);
+  display: inline-grid; place-items: center; font-size: 13px; font-weight: 600; flex: none;
+}
+.scen { display: grid; gap: 6px; }
+.scen label {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start;
+  border: 1px solid var(--rule); border-radius: 8px; padding: 9px 11px; cursor: pointer;
+}
+.scen label:has(input:checked) { border-color: var(--teal); background: var(--teal-soft); }
+.scen input { margin: 4px 0 0; accent-color: var(--teal); }
+.scen b { font-weight: 600; }
+.desc { color: var(--muted); font-size: 13.5px; margin: 10px 0 0; }
+.truth { font-size: 13.5px; margin: 6px 0 0; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.btn {
+  border: 1px solid var(--rule); background: var(--surface); padding: 7px 13px; border-radius: 8px;
+  cursor: pointer; font-weight: 500;
+}
+.btn:hover { border-color: var(--ink); }
+.btn.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+.preview { overflow-x: auto; margin-top: 12px; border: 1px solid var(--rule); border-radius: 8px; }
+.preview table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.preview th, .preview td { padding: 5px 9px; text-align: left; border-bottom: 1px solid var(--rule); }
+.preview th { color: var(--muted); font-weight: 500; }
+.preview tr:last-child td { border-bottom: 0; }
+.field { display: grid; gap: 4px; margin-bottom: 11px; }
+.field > span { font-size: 13px; color: var(--muted); }
+.field select, .field input[type=number] {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface);
+}
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.checks label, .opt { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
+.checks input, .opt input { accent-color: var(--teal); }
+.hint { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+
+.report { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.sec { padding: 20px 24px 22px; }
+.sec + .sec { border-top: 1px solid var(--rule); }
+.sec h3 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+.sec h3 small { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: 6px; }
+.verdict { font-size: 19px; line-height: 1.45; font-weight: 500; max-width: 60ch; margin: 0; }
+.verdict-sub { color: var(--muted); margin: 8px 0 0; max-width: 70ch; }
+.banner { padding: 12px 24px; font-weight: 500; }
+.banner.bad { background: var(--bad-soft); color: var(--bad); }
+.status { display: grid; gap: 10px; }
+.st { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; margin-top: 1px; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+.st b { font-weight: 600; }
+.st p { margin: 1px 0 0; color: var(--muted); font-size: 14px; }
+.diag { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--rule); border-radius: 10px; margin-bottom: 14px; }
+.diag > div { padding: 12px 14px; }
+.diag > div + div { border-left: 1px solid var(--rule); }
+.diag .v { font-size: 24px; font-weight: 600; line-height: 1.2; }
+.diag .l { font-size: 13px; color: var(--muted); }
+.notes { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.notes li { padding-left: 14px; position: relative; max-width: 72ch; }
+.notes li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.notes li.good::before { background: var(--ok); } .notes li.warn::before { background: var(--warn); } .notes li.bad::before { background: var(--bad); }
+svg text { fill: var(--muted); font-family: inherit; font-size: 12px; }
+svg .lbl { fill: var(--ink); font-size: 13px; font-weight: 500; }
+svg .axis { stroke: var(--rule); } svg .zero { stroke: var(--ink); stroke-width: 1.2; }
+svg .truthl { stroke: var(--ok); stroke-dasharray: 4 4; stroke-width: 1.5; }
+svg .truthl-t { fill: var(--ok); font-weight: 500; }
+svg .plain { stroke: var(--graph); fill: var(--graph); } svg .adj { stroke: var(--teal); fill: var(--teal); }
+svg .ci { stroke-width: 3; stroke-linecap: round; fill: none; }
+svg .ref { stroke: var(--muted); stroke-dasharray: 3 4; }
+svg .cur { stroke: var(--ink); stroke-dasharray: 2 3; }
+.plot { width: 100%; height: auto; display: block; }
+.tbl { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+.tbl th, .tbl td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--rule); }
+.tbl th { color: var(--muted); font-weight: 500; font-size: 13px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; vertical-align: 0; }
+.sw.plain { background: var(--graph); } .sw.adj { background: var(--teal); }
+.bars { display: grid; gap: 10px; margin-top: 4px; }
+.bar { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: center; }
+.bar .track { height: 26px; background: var(--graph-soft); border-radius: 6px; position: relative; overflow: hidden; }
+.bar .fill { height: 100%; border-radius: 6px; transition: width .25s ease; display: flex; align-items: center; padding: 0 9px; color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.bar .fill.plain { background: var(--graph); } .bar .fill.adj { background: var(--teal); }
+.plan { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-end; }
+.plan .field { margin: 0; min-width: 190px; }
+input[type=range] { width: 100%; accent-color: var(--teal); }
+.muted { color: var(--muted); }
+.dim { opacity: .55; }
+.empty { padding: 48px 24px; color: var(--muted); }
+
+.sb-out .big { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--rule); border-radius: 10px; }
+.sb-out .big > div { padding: 14px 16px; }
+.sb-out .big > div + div { border-left: 1px solid var(--rule); }
+.sb-out .big .v { font-size: 34px; font-weight: 700; line-height: 1.1; }
+.sb-out .big .v.plain { color: var(--graph); } .sb-out .big .v.adj { color: var(--teal); }
+.slider { margin-bottom: 16px; }
+.slider .hd { display: flex; justify-content: space-between; font-size: 14px; }
+.slider .hd output { font-weight: 600; }
+.formula { font-size: 15px; padding: 10px 12px; background: var(--graph-soft); border-radius: 8px; margin: 10px 0 0; text-align: center; }
+.mc { font-size: 14px; margin-top: 10px; min-height: 1.5em; }
+
+[hidden] { display: none !important; }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .side { position: static; }
+}
+@media (max-width: 560px) {
+  .top h1 { font-size: 23px; }
+  .diag { grid-template-columns: 1fr; }
+  .diag > div + div { border-left: 0; border-top: 1px solid var(--rule); }
+  .bar { grid-template-columns: 1fr; gap: 4px; }
+  .sec { padding: 18px 16px 20px; }
+  .sb-out .big .v { font-size: 28px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>Прототип анализа A/B тестов</h1>
+    <p>Демонстрация к ВКР о повышении чувствительности A/B экспериментов на метриках мобильных игр. Данные генерируются в браузере, свой CSV никуда не отправляется.</p>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="analysis">Анализ теста</button>
+    <button role="tab" aria-selected="false" data-tab="sandbox">Песочница</button>
+  </nav>
+</header>
+
+<!-- ============ АНАЛИЗ ============ -->
+<main id="tab-analysis" class="grid">
+  <aside class="side">
+    <section class="step">
+      <h2><span class="num">1</span>Данные</h2>
+      <div class="scen" id="scen">
+        <label><input type="radio" name="scen" value="playtime" checked><b>Время в игре</b><span></span></label>
+        <label><input type="radio" name="scen" value="revenue"><b>Выручка</b><span></span></label>
+        <label><input type="radio" name="scen" value="broken"><b>Ошибка в данных</b><span></span></label>
+        <label><input type="radio" name="scen" value="csv"><b>Свой CSV</b><span></span></label>
+      </div>
+      <p class="desc" id="scenDesc"></p>
+      <p class="truth" id="scenTruth"></p>
+      <div class="row" id="demoRow">
+        <button class="btn" id="reseed">Новая случайная выборка</button>
+        <span class="hint" id="seedInfo"></span>
+      </div>
+      <div class="row" id="csvRow" hidden>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+      </div>
+      <div class="preview" id="preview"></div>
+    </section>
+
+    <section class="step">
+      <h2><span class="num">2</span>Столбцы</h2>
+      <div id="mapping"><p class="muted">Сначала выберите данные.</p></div>
+    </section>
+  </aside>
+
+  <section class="report" id="report" aria-live="polite"></section>
+</main>
+
+<!-- ============ ПЕСОЧНИЦА ============ -->
+<main id="tab-sandbox" class="grid" hidden>
+  <aside class="side">
+    <section class="step">
+      <h2>Параметры данных</h2>
+      <div class="slider"><div class="hd"><span>Связь с прошлым</span><output id="o-rho"></output></div>
+        <input type="range" id="s-rho" min="0" max="0.95" step="0.05" value="0.8">
+        <p class="hint">Корреляция метрики с ее значением до теста.</p></div>
+      <div class="slider"><div class="hd"><span>Доля новичков без истории</span><output id="o-newb"></output></div>
+        <input type="range" id="s-newb" min="0" max="0.8" step="0.05" value="0.2"></div>
+      <div class="slider"><div class="hd"><span>Истинный эффект</span><output id="o-eff"></output></div>
+        <input type="range" id="s-eff" min="0.01" max="0.1" step="0.005" value="0.03"></div>
+      <div class="slider"><div class="hd"><span>Игроков в тесте</span><output id="o-n"></output></div>
+        <input type="range" id="s-n" min="5000" max="200000" step="5000" value="30000"></div>
+      <div class="slider"><div class="hd"><span>Разброс метрики между игроками</span><output id="o-cv"></output></div>
+        <input type="range" id="s-cv" min="0.5" max="4" step="0.1" value="1.5">
+        <p class="hint">Коэффициент вариации: во сколько раз стандартное отклонение больше среднего.</p></div>
+    </section>
+  </aside>
+
+  <section class="report sb-out">
+    <div class="sec">
+      <h3>Как часто тест найдет эффект</h3>
+      <div class="big">
+        <div><div class="v plain" id="sb-pp"></div><div class="muted">Обычный тест</div></div>
+        <div><div class="v adj" id="sb-pa"></div><div class="muted">С поправкой на прошлое</div></div>
+      </div>
+      <p class="verdict-sub" id="sb-text"></p>
+    </div>
+    <div class="sec">
+      <h3>Мощность против числа игроков</h3>
+      <svg class="plot" id="sb-chart" viewBox="0 0 640 260" role="img" aria-label="График мощности"></svg>
+      <p class="hint"><span class="sw plain"></span>обычный тест <span class="sw adj" style="margin-left:14px"></span>с поправкой. Горизонтальный пунктир отмечает мощность 80%, которую обычно считают достаточной, вертикальный показывает выбранное число игроков.</p>
+    </div>
+    <div class="sec">
+      <h3>Откуда берутся числа</h3>
+      <p class="muted" style="margin:0;max-width:70ch">Поправка убирает из шума часть, предсказуемую по прошлому, но только у игроков с историей. Если доля игроков с историей равна h, а связь с прошлым равна ρ, остаточный шум составляет долю от исходного</p>
+      <div class="formula">h (1 − ρ²) + (1 − h)</div>
+      <p class="muted" style="margin:10px 0 0;max-width:70ch">Песочница использует упрощенную модель с нормальным шумом, поэтому тяжелые хвосты здесь не видны. Расчет по формуле можно проверить прямым моделированием.</p>
+      <div class="row"><button class="btn primary" id="mcBtn">Проверить моделированием, 200 повторов</button></div>
+      <div class="mc" id="mcOut"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ===== Генератор случайных чисел с seed =====
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeRng(seed) {
+  const u = mulberry32(seed);
+  let spare = null;
+  const normal = () => {
+    if (spare !== null) { const s = spare; spare = null; return s; }
+    let a, b, s;
+    do { a = u() * 2 - 1; b = u() * 2 - 1; s = a * a + b * b; } while (s >= 1 || s === 0);
+    const m = Math.sqrt(-2 * Math.log(s) / s);
+    spare = b * m; return a * m;
+  };
+  return { u, normal, lognormal: (mu, sd) => Math.exp(mu + sd * normal()) };
+}
+function pick(rng, items, probs) {
+  let r = rng.u(), acc = 0;
+  for (let i = 0; i < items.length; i++) { acc += probs[i]; if (r < acc) return items[i]; }
+  return items[items.length - 1];
+}
+
+// ===== Демо-сценарии =====
+const DEV = { iOS: 1.35, Android: 1.0 };
+const CTRY = { "Россия": 1.0, "Казахстан": 0.8, "Беларусь": 0.9, "Другие": 1.2 };
+
+function generate(kind, seed) {
+  const rng = makeRng(seed);
+  const N = 30000;
+  const cols = { player_id: [], group: [], device: [], country: [], metric_pre: [], metric_test: [] };
+  const pB = kind === "broken" ? 0.52 : 0.5;
+  for (let i = 0; i < N; i++) {
+    const device = pick(rng, ["iOS", "Android"], [0.4, 0.6]);
+    const country = pick(rng, ["Россия", "Казахстан", "Беларусь", "Другие"], [0.6, 0.15, 0.1, 0.15]);
+    const isNew = rng.u() < 0.2;
+    const g = rng.u() < pB ? "B" : "A";
+    let pre, test;
+    if (kind === "revenue") {
+      const level = rng.lognormal(0, 1.3) * DEV[device] * CTRY[country];
+      const p = Math.min(0.9, 0.035 * level);
+      pre = (rng.u() < p) ? level * rng.lognormal(4.5, 1.1) : 0;
+      test = (rng.u() < p) ? level * rng.lognormal(4.5, 1.1) : 0;
+      test *= (g === "B" ? 1.05 : 1);
+    } else {
+      const level = rng.lognormal(0, 1.1) * DEV[device] * CTRY[country];
+      pre = level * rng.lognormal(4.6, 0.33);
+      test = level * rng.lognormal(4.6, 0.33) * (g === "B" ? 1.03 : 1);
+      if (kind === "broken" && g === "B") pre *= 1.5; // предыстория B посчитана за 3 недели вместо 2
+    }
+    cols.player_id.push(100000 + i);
+    cols.group.push(g);
+    cols.device.push(device);
+    cols.country.push(country);
+    cols.metric_pre.push(isNew ? "" : Math.round(pre * 10) / 10);
+    cols.metric_test.push(Math.round(test * 10) / 10);
+  }
+  return { headers: Object.keys(cols), cols, n: N };
+}
+
+// ===== Статистика =====
+function erf(x) {
+  const s = Math.sign(x); x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+const Phi = (z) => 0.5 * (1 + erf(z / Math.SQRT2));
+function meanVar(a) {
+  let m = 0; for (const v of a) m += v; m /= a.length;
+  let s = 0; for (const v of a) s += (v - m) * (v - m);
+  return { m, v: s / (a.length - 1), n: a.length };
+}
+function welch(a, b) { // b минус a
+  const A = meanVar(a), B = meanVar(b);
+  const diff = B.m - A.m;
+  const se = Math.sqrt(A.v / A.n + B.v / B.n);
+  const z = diff / se;
+  return { diff, se, z, p: 2 * (1 - Phi(Math.abs(z))), meanA: A.m, meanB: B.m };
+}
+function corr(x, y) {
+  const X = meanVar(x), Y = meanVar(y);
+  let s = 0; for (let i = 0; i < x.length; i++) s += (x[i] - X.m) * (y[i] - Y.m);
+  return s / (x.length - 1) / Math.sqrt(X.v * Y.v);
+}
+function quantile(arr, q) {
+  const s = Float64Array.from(arr).sort();
+  const pos = (s.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+}
+function solve(A, b) { // Гаусс с выбором главного элемента
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-12) continue;
+    for (let r = 0; r < n; r++) if (r !== c) {
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => Math.abs(r[i]) < 1e-12 ? 0 : r[n] / r[i]);
+}
+
+// ===== Анализ =====
+// map: {group, metric, pre (или null), control, features: []}, opts: {winsor}
+function analyze(ds, map, opts = {}) {
+  const Z = 1.959964, ZB = 0.841621;
+  const g = ds.cols[map.group], y0 = ds.cols[map.metric];
+  const pre0 = map.pre ? ds.cols[map.pre] : null;
+  const rows = [];
+  let dropped = 0;
+  for (let i = 0; i < g.length; i++) {
+    const yv = parseFloat(y0[i]);
+    if (g[i] === "" || g[i] == null || !isFinite(yv)) { dropped++; continue; }
+    const pv = pre0 ? parseFloat(pre0[i]) : NaN;
+    rows.push({ i, t: g[i] === map.control ? 0 : 1, y: yv, pre: isFinite(pv) ? pv : null });
+  }
+  const groupsSeen = new Set(); for (const r of rows) groupsSeen.add(g[r.i]);
+
+  // винзоризация
+  let capY = null;
+  if (opts.winsor) {
+    capY = quantile(rows.map(r => r.y), 0.995);
+    const hasPre = rows.filter(r => r.pre !== null);
+    const capP = hasPre.length ? quantile(hasPre.map(r => r.pre), 0.995) : null;
+    for (const r of rows) { r.y = Math.min(r.y, capY); if (r.pre !== null) r.pre = Math.min(r.pre, capP); }
+  }
+
+  const n = rows.length, nB = rows.reduce((s, r) => s + r.t, 0), nA = n - nB;
+  // 1. проверки
+  const q = opts.expectB || 0.5;
+  const zSRM = (nB - n * q) / Math.sqrt(n * q * (1 - q));
+  const srm = { nA, nB, shareB: nB / n, expect: q, p: 2 * (1 - Phi(Math.abs(zSRM))), dropped, groups: groupsSeen.size };
+  const withHist = rows.filter(r => r.pre !== null);
+  const newShare = pre0 ? 1 - withHist.length / n : 1;
+  let balance = null;
+  if (pre0 && withHist.length > 10) {
+    const la = withHist.filter(r => r.t === 0).map(r => Math.log1p(Math.max(0, r.pre)));
+    const lb = withHist.filter(r => r.t === 1).map(r => Math.log1p(Math.max(0, r.pre)));
+    const w = welch(la, lb);
+    const ma = meanVar(withHist.filter(r => r.t === 0).map(r => r.pre)).m;
+    const mb = meanVar(withHist.filter(r => r.t === 1).map(r => r.pre)).m;
+    balance = { p: w.p, rel: mb / ma - 1 };
+  }
+  const balanceBroken = balance && balance.p < 0.001;
+  const usePre = pre0 && !balanceBroken && withHist.length > 10;
+
+  // 2. диагностика
+  const ys = rows.map(r => r.y);
+  const rho = withHist.length > 10 ? corr(withHist.map(r => r.pre), withHist.map(r => r.y)) : null;
+  const sorted = Float64Array.from(ys).sort();
+  const total = sorted.reduce((s, v) => s + v, 0);
+  let top = 0; const k = Math.max(1, Math.floor(n * 0.01));
+  for (let j = n - k; j < n; j++) top += sorted[j];
+  const tail = { top1: total > 0 ? top / total : 0, zeros: ys.filter(v => v === 0).length / n, cap: capY };
+
+  // регрессионная поправка: предыстория (0 для новичков) + признак "нет истории" + категориальные признаки
+  const feats = [];
+  if (usePre) {
+    feats.push(r => r.pre === null ? 0 : r.pre);
+    if (newShare > 0) feats.push(r => r.pre === null ? 1 : 0);
+  }
+  const usedFeatures = [];
+  for (const f of map.features || []) {
+    const col = ds.cols[f];
+    const levels = [...new Set(rows.map(r => col[r.i]))].sort();
+    if (levels.length < 2 || levels.length > 30) continue;
+    usedFeatures.push(f);
+    for (const lv of levels.slice(1)) feats.push(r => col[r.i] === lv ? 1 : 0);
+  }
+  let adj = ys.slice(), fitted = false;
+  if (feats.length) {
+    const p = feats.length + 1;
+    const XtX = Array.from({ length: p }, () => new Array(p).fill(0));
+    const Xty = new Array(p).fill(0);
+    const xr = new Array(p);
+    for (const r of rows) {
+      xr[0] = 1; for (let j = 0; j < feats.length; j++) xr[j + 1] = feats[j](r);
+      for (let a = 0; a < p; a++) { Xty[a] += xr[a] * r.y; for (let b = a; b < p; b++) XtX[a][b] += xr[a] * xr[b]; }
+    }
+    for (let a = 0; a < p; a++) for (let b = 0; b < a; b++) XtX[a][b] = XtX[b][a];
+    const beta = solve(XtX, Xty);
+    const pred = rows.map(r => { let s = beta[0]; for (let j = 0; j < feats.length; j++) s += beta[j + 1] * feats[j](r); return s; });
+    const mp = pred.reduce((s, v) => s + v, 0) / n;
+    adj = rows.map((r, j) => r.y - (pred[j] - mp));
+    fitted = true;
+  }
+
+  // 3. результат
+  const splitBy = (vals) => [vals.filter((_, j) => rows[j].t === 0), vals.filter((_, j) => rows[j].t === 1)];
+  const [ya, yb] = splitBy(ys), [aa, ab] = splitBy(adj);
+  const plain = welch(ya, yb), corr_ = welch(aa, ab);
+  const pack = (w, meanA) => ({
+    rel: w.diff / meanA, lo: (w.diff - Z * w.se) / meanA, hi: (w.diff + Z * w.se) / meanA, p: w.p, diff: w.diff, se: w.se
+  });
+  const res = { plain: pack(plain, plain.meanA), adj: fitted ? pack(corr_, plain.meanA) : null, meanA: plain.meanA, meanB: plain.meanB };
+
+  // 4. выигрыш
+  const vY = meanVar(ys).v, vAdj = meanVar(adj).v;
+  const gain = { varRed: 1 - vAdj / vY, factor: vY / vAdj };
+
+  return { n, srm, balance, balanceBroken, usePre, newShare, rho, tail, usedFeatures, fitted, res, gain,
+    vY, vAdj, meanA: plain.meanA, Z, ZB };
+}
+
+function planN(vari, meanA, mdeRel, Z = 1.959964, ZB = 0.841621) {
+  const d = mdeRel * meanA;
+  return Math.ceil(2 * (Z + ZB) ** 2 * vari / (d * d));
+}
+
+
+
+</script>
+<script>
+(function () {
+"use strict";
+const $ = (id) => document.getElementById(id);
+const nf = (x, d = 1) => x.toLocaleString("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (x, d = 1) => nf(x * 100, d) + "%";
+const spct = (x, d = 1) => (x > 0 ? "+" : x < 0 ? "−" : "") + nf(Math.abs(x) * 100, d) + "%";
+const fint = (x) => Math.round(x).toLocaleString("ru-RU");
+const fp = (p) => p < 0.001 ? "< 0,001" : nf(p, 3);
+const pv = (p) => p < 0.001 ? "p < 0,001" : "p = " + nf(p, 3);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------- вкладки ----------
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  $("tab-analysis").hidden = b.dataset.tab !== "analysis";
+  $("tab-sandbox").hidden = b.dataset.tab !== "sandbox";
+  if (b.dataset.tab === "sandbox") renderSandbox();
+  window.scrollTo(0, 0);
+}));
+
+// ---------- сценарии ----------
+const SCEN = {
+  playtime: { desc: "Минуты в игре за две недели на игрока. Метрика устойчивая: кто много играл до теста, много играет и во время него. У 20% игроков нет истории, они пришли недавно.", truth: 0.03, seed: 25 },
+  revenue: { desc: "Платежи за две недели в рублях. Платит меньшинство, а крупнейшие плательщики дают большую часть выручки. У 20% игроков нет истории.", truth: 0.05, seed: 10 },
+  broken: { desc: "Те же данные о времени в игре, но с двумя ошибками сбора: группы разбиты не поровну, а предыстория группы B посчитана за три недели вместо двух.", truth: 0.03, seed: 25 },
+  csv: { desc: "Одна строка на игрока. Нужны столбцы с группой и метрикой во время теста. Метрика до теста и признаки вроде устройства и страны не обязательны, но без них поправка невозможна. Разделитель запятая или точка с запятой." }
+};
+const S = { kind: "playtime", seed: 25, ds: null, map: null, expectB: 0.5, winsor: false, mde: 0.03, perDay: 3000, last: null };
+
+$("scen").addEventListener("change", (e) => { S.kind = e.target.value; S.seed = SCEN[S.kind].seed || 1; loadScenario(); });
+$("reseed").addEventListener("click", () => { S.seed = 1 + Math.floor(Math.random() * 1e6); loadScenario(); });
+$("csvFile").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try { S.ds = parseCSV(rd.result); S.map = guessMap(S.ds); renderData(); renderMapping(); run(); }
+    catch (err) { S.ds = null; $("report").innerHTML = `<div class="empty">Не удалось прочитать файл: ${esc(err.message)}. Проверьте, что первая строка содержит названия столбцов.</div>`; }
+  };
+  rd.readAsText(f);
+});
+
+function loadScenario() {
+  const sc = SCEN[S.kind];
+  $("scenDesc").textContent = sc.desc;
+  $("scenTruth").innerHTML = sc.truth ? `Заложенный в данные истинный эффект: <b>${spct(sc.truth, 0)}</b>. В реальном тесте он неизвестен, здесь он нужен для проверки.` : "";
+  $("demoRow").hidden = S.kind === "csv";
+  $("csvRow").hidden = S.kind !== "csv";
+  $("seedInfo").textContent = S.kind === "csv" ? "" : `выборка № ${S.seed}`;
+  if (S.kind === "csv") {
+    S.ds = null; $("preview").innerHTML = ""; $("mapping").innerHTML = '<p class="muted">Сначала загрузите файл.</p>';
+    $("report").innerHTML = '<div class="empty">Загрузите CSV, чтобы построить отчет.</div>'; return;
+  }
+  S.ds = generate(S.kind, S.seed);
+  S.map = { group: "group", control: "A", metric: "metric_test", pre: "metric_pre", features: ["device", "country"] };
+  S.winsor = false;
+  renderData(); renderMapping(); run();
+}
+
+// ---------- CSV ----------
+function parseCSV(text) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length < 3) throw new Error("в файле меньше трех строк");
+  const delim = lines[0].split(";").length > lines[0].split(",").length ? ";" : ",";
+  const split = (l) => l.split(delim).map((v) => v.trim().replace(/^"(.*)"$/, "$1"));
+  const headers = split(lines[0]);
+  const cols = {}; headers.forEach((h) => (cols[h] = []));
+  const lim = Math.min(lines.length, 300001);
+  for (let i = 1; i < lim; i++) {
+    const v = split(lines[i]);
+    headers.forEach((h, j) => {
+      let x = v[j] === undefined ? "" : v[j];
+      if (delim === ";" && /^-?\d+,\d+$/.test(x)) x = x.replace(",", ".");
+      cols[h].push(x);
+    });
+  }
+  return { headers, cols, n: lim - 1 };
+}
+function uniq(col, lim = 5000) { const s = new Set(); for (let i = 0; i < Math.min(col.length, lim); i++) s.add(col[i]); return s; }
+function isNumeric(col) { let k = 0, ok = 0; for (let i = 0; i < Math.min(col.length, 2000); i++) { if (col[i] === "") continue; k++; if (isFinite(parseFloat(col[i]))) ok++; } return k > 0 && ok / k > 0.95; }
+function guessMap(ds) {
+  const H = ds.headers, find = (re) => H.find((h) => re.test(h));
+  const group = find(/group|груп|variant|вариант|arm/i) || H.find((h) => uniq(ds.cols[h]).size === 2) || H[0];
+  const nums = H.filter((h) => h !== group && isNumeric(ds.cols[h]) && !isIdCol(ds, h));
+  const pre = nums.find((h) => /pre|before|history|истор|_до|до_/i.test(h)) || null;
+  const metric = nums.find((h) => h !== pre && /during|after|test|metric|revenue|выруч|время|time|minutes|value/i.test(h)) || nums.find((h) => h !== pre) || H[1];
+  const vals = [...uniq(ds.cols[group])].filter((v) => v !== "").sort();
+  const control = vals.find((v) => /^(a|control|контроль|0)$/i.test(v)) || vals[0];
+  const features = featureCandidates(ds, { group, metric, pre });
+  return { group, control, metric, pre, features };
+}
+function isIdCol(ds, h) {
+  if (/(^|_)id$|^id/i.test(h)) return true;
+  const k = Math.min(ds.n, 5000);
+  return uniq(ds.cols[h], k).size >= k * 0.99 && ds.cols[h].slice(0, k).every((v) => /^\d+$/.test(v));
+}
+function featureCandidates(ds, m) {
+  return ds.headers.filter((h) => h !== m.group && h !== m.metric && h !== m.pre && !isIdCol(ds, h) && !isNumeric(ds.cols[h]) && (() => { const k = uniq(ds.cols[h]).size; return k >= 2 && k <= 30; })());
+}
+
+// ---------- шаг 1 и 2 ----------
+function renderData() {
+  const ds = S.ds, H = ds.headers;
+  let h = "<table><thead><tr>" + H.map((x) => `<th>${esc(x)}</th>`).join("") + "</tr></thead><tbody>";
+  for (let i = 0; i < Math.min(5, ds.n); i++) h += "<tr>" + H.map((x) => `<td>${ds.cols[x][i] === "" ? '<span class="muted">пусто</span>' : esc(ds.cols[x][i])}</td>`).join("") + "</tr>";
+  h += "</tbody></table>";
+  $("preview").innerHTML = h;
+}
+function renderMapping() {
+  const ds = S.ds, m = S.map, H = ds.headers;
+  const opt = (sel, list, none) => (none ? `<option value="">${none}</option>` : "") + list.map((x) => `<option value="${esc(x)}" ${x === sel ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const gvals = [...uniq(ds.cols[m.group])].filter((v) => v !== "").sort().slice(0, 12);
+  const cands = featureCandidates(ds, m);
+  $("mapping").innerHTML = `
+    <div class="two">
+      <label class="field"><span>Группа</span><select id="m-group">${opt(m.group, H)}</select></label>
+      <label class="field"><span>Контрольная группа</span><select id="m-control">${opt(m.control, gvals)}</select></label>
+    </div>
+    <label class="field"><span>Метрика во время теста</span><select id="m-metric">${opt(m.metric, H)}</select></label>
+    <label class="field"><span>Метрика до теста</span><select id="m-pre">${opt(m.pre, H, "нет")}</select></label>
+    <div class="field"><span>Признаки игрока</span>
+      <div class="checks">${cands.length ? cands.map((c) => `<label><input type="checkbox" value="${esc(c)}" ${m.features.includes(c) ? "checked" : ""}>${esc(c)}</label>`).join("") : '<span class="muted">подходящих столбцов нет</span>'}</div>
+    </div>
+    <div class="two">
+      <label class="field"><span>Задуманная доля группы B, %</span><input type="number" id="m-expect" min="1" max="99" value="${Math.round(S.expectB * 100)}"></label>
+      <div class="field"><span>Хвост</span><label class="opt"><input type="checkbox" id="m-winsor" ${S.winsor ? "checked" : ""}>Обрезать 0,5% крупнейших</label></div>
+    </div>
+    <p class="hint">Отчет обновляется сразу после изменения.</p>`;
+  const upd = () => {
+    const ng = $("m-group").value;
+    if (ng !== m.group) { m.group = ng; m.control = [...uniq(ds.cols[ng])].filter((v) => v !== "").sort()[0]; renderMapping(); run(); return; }
+    m.control = $("m-control").value; m.metric = $("m-metric").value; m.pre = $("m-pre").value || null;
+    m.features = [...document.querySelectorAll("#mapping .checks input:checked")].map((x) => x.value);
+    S.expectB = Math.min(0.99, Math.max(0.01, (parseFloat($("m-expect").value) || 50) / 100));
+    S.winsor = $("m-winsor").checked;
+    run();
+  };
+  $("mapping").querySelectorAll("select, input").forEach((el) => el.addEventListener("change", upd));
+}
+
+// ---------- отчет ----------
+function run() {
+  const ds = S.ds; if (!ds) return;
+  const m = S.map;
+  const gv = [...uniq(ds.cols[m.group], ds.n)].filter((v) => v !== "");
+  if (gv.length !== 2) { $("report").innerHTML = `<div class="empty">В столбце группы должно быть ровно два значения, найдено ${gv.length}. Выберите другой столбец.</div>`; return; }
+  if (!isNumeric(ds.cols[m.metric])) { $("report").innerHTML = '<div class="empty">Столбец метрики должен содержать числа. Выберите другой столбец.</div>'; return; }
+  const r = analyze(ds, m, { winsor: S.winsor, expectB: S.expectB });
+  S.last = r;
+  renderReport(r);
+}
+
+function renderReport(r) {
+  const truth = SCEN[S.kind].truth;
+  const srmBad = r.srm.p < 0.001;
+  const P = r.res.plain, A = r.res.adj;
+  const best = A || P;
+  const mdeNow = (r.Z + r.ZB) * best.se / r.meanA;
+  const dir = (x) => x >= 0 ? "рост" : "снижение";
+
+  // итог
+  let verdict, sub = "";
+  if (srmBad) {
+    verdict = "Выводам этого теста доверять нельзя: разбиение на группы нарушено.";
+    sub = "Числа ниже показаны для полноты, но решения на их основе принимать не стоит. Сначала найдите ошибку в разбиении или логировании.";
+  } else if (A && A.p < 0.05 && P.p >= 0.05) {
+    verdict = `Обычный тест эффекта не видит, а с поправкой найден ${dir(A.rel)} метрики на ${spct(A.rel).replace(/^[+−]/, "")}.`;
+    sub = `95% доверительный интервал от ${spct(A.lo)} до ${spct(A.hi)}. Поправка использует прошлое поведение игроков, чтобы убрать часть шума, поэтому интервал уже, чем у обычного теста.`;
+  } else if (A && A.p < 0.05 && P.p < 0.05) {
+    verdict = `Эффект найден обоими способами: ${dir(A.rel)} метрики на ${spct(A.rel).replace(/^[+−]/, "")}.`;
+    sub = `Поправка сузила интервал в ${nf((P.hi - P.lo) / (A.hi - A.lo), 1)} раза: от ${spct(A.lo)} до ${spct(A.hi)} вместо ${spct(P.lo)} до ${spct(P.hi)}.`;
+  } else if (!A && P.p < 0.05) {
+    verdict = `Найден ${dir(P.rel)} метрики на ${spct(P.rel).replace(/^[+−]/, "")}.`;
+    sub = "Поправка не применялась: нет ни предыстории, ни признаков игроков.";
+  } else {
+    verdict = "Эффект не обнаружен ни одним способом.";
+    sub = `Это не значит, что эффекта нет. При таком шуме и числе игроков тест надежно заметит только эффект от ${pct(mdeNow)} и больше.`;
+  }
+
+  // проверки
+  const checks = [];
+  checks.push(srmBad
+    ? { s: "bad", t: "Размеры групп не совпадают с задуманными", d: `В группе B ${pct(r.srm.shareB)} игроков вместо ${pct(r.srm.expect, 0)}. При исправном разбиении такое отклонение почти невозможно, ${pv(r.srm.p)}. Так бывает при ошибке разбиения или потере части событий.` }
+    : { s: "ok", t: "Размеры групп в норме", d: `A ${fint(r.srm.nA)}, B ${fint(r.srm.nB)} игроков, это ${pct(r.srm.shareB)} в группе B при задуманных ${pct(r.srm.expect, 0)}.` });
+  checks.push(r.srm.dropped > 0
+    ? { s: "warn", t: "Есть неполные строки", d: `${fint(r.srm.dropped)} строк без группы или метрики исключены из анализа.` }
+    : { s: "ok", t: "Пропусков в группе и метрике нет", d: r.newShare > 0 && S.map.pre ? `Пустая предыстория у ${pct(r.newShare)} игроков считается отсутствием истории, а не ошибкой.` : "Все строки участвуют в анализе." });
+  if (r.balance) checks.push(r.balanceBroken
+    ? { s: "bad", t: "Предыстория различается между группами", d: `В группе B она в среднем на ${pct(Math.abs(r.balance.rel), 0)} ${r.balance.rel > 0 ? "выше" : "ниже"}, ${pv(r.balance.p)}. До теста группы не отличались ничем, поэтому так быть не должно. Вероятно, эти данные собраны за другой период или уже после старта. Поправка по ним отключена.` }
+    : { s: "ok", t: "Предыстория в группах одинакова", d: `Распределения предыстории в группах не различаются сверх случайного, ${pv(r.balance.p)}. Это согласуется с тем, что данные собраны до теста.` });
+  else checks.push({ s: "warn", t: "Предыстории нет", d: "Столбец метрики до теста не выбран. Поправка возможна только по признакам игроков." });
+
+  // диагностика
+  const notes = [];
+  if (r.balanceBroken) notes.push(["bad", "Предыстория не используется из-за проверки выше. Поправка строится только по признакам, и выигрыш от нее мал."]);
+  else if (r.usePre) {
+    if (r.gain.varRed >= 0.3) notes.push(["good", `Поправка рекомендуется: шум снижается на ${pct(r.gain.varRed, 0)}.`]);
+    else if (r.gain.varRed >= 0.1) notes.push(["warn", `Поправка дает умеренный выигрыш: шум снижается на ${pct(r.gain.varRed, 0)}.`]);
+    else notes.push(["warn", `Поправка почти ничего не дает: метрика слабо связана с прошлым, шум снижается лишь на ${pct(r.gain.varRed, 0)}.`]);
+  }
+  if (r.usePre && r.newShare > 0.001) notes.push(["", `У ${pct(r.newShare, 0)} игроков нет истории. Для них поправка строится по признакам${r.usedFeatures.length ? " (" + r.usedFeatures.map(esc).join(", ") + ")" : ""} и отметке об отсутствии истории, так что эти игроки не выпадают из анализа.`]);
+  if (r.tail.top1 > 0.3) notes.push(["warn", `Тяжелый хвост: 1% игроков дает ${pct(r.tail.top1, 0)} суммы метрики${r.tail.zeros > 0.5 ? ", а у " + pct(r.tail.zeros, 0) + " игроков значение нулевое" : ""}. Среднее здесь неустойчиво, и поправка на прошлое мало помогает. Можно обрезать крупнейшие значения в шаге 2, но это меняет смысл метрики: эффект на самых крупных плательщиках перестанет учитываться.`]);
+  if (S.winsor) notes.push(["", `Включена обрезка: значения выше ${nf(r.tail.cap, 0)} заменены этим порогом.`]);
+
+  // график результата
+  const forest = forestSVG(r, S.kind !== "csv" ? truth : null);
+
+  // выигрыш
+  const f = r.gain.factor;
+  const gainTxt = f > 1.1
+    ? `Шум уменьшился на ${pct(r.gain.varRed, 0)}. Чтобы получить такую же точность без поправки, понадобилось бы в ${nf(f, 1)} раза больше игроков или во столько же раз более длинный тест.`
+    : "Поправка почти не уменьшила шум, выигрыша по объему выборки нет.";
+
+  const html = `
+    ${srmBad ? '<div class="banner bad">Разбиение на группы нарушено. Результаты ниже ненадежны.</div>' : ""}
+    <div class="sec">
+      <h3>Итог</h3>
+      <p class="verdict">${verdict}</p>
+      <p class="verdict-sub">${sub}</p>
+    </div>
+    <div class="sec">
+      <h3>Проверка данных</h3>
+      <div class="status">${checks.map((c) => `<div class="st"><span class="dot ${c.s}">${c.s === "ok" ? "✓" : "!"}</span><div><b>${c.t}</b><p>${c.d}</p></div></div>`).join("")}</div>
+    </div>
+    <div class="sec">
+      <h3>Диагностика</h3>
+      <div class="diag">
+        <div><div class="v">${r.rho === null ? "нет" : nf(r.rho, 2)}</div><div class="l">связь метрики с прошлым, корреляция</div></div>
+        <div><div class="v">${S.map.pre ? pct(r.newShare, 0) : "все"}</div><div class="l">игроков без истории</div></div>
+        <div><div class="v">${pct(r.tail.top1, 0)}</div><div class="l">суммы метрики дает 1% игроков с наибольшими значениями</div></div>
+      </div>
+      <ul class="notes">${notes.map(([c, t]) => `<li class="${c}">${t}</li>`).join("")}</ul>
+    </div>
+    <div class="sec ${srmBad ? "dim" : ""}">
+      <h3>Результат теста <small>95% доверительные интервалы</small></h3>
+      ${forest}
+      <table class="tbl">
+        <thead><tr><th>Способ</th><th>Эффект</th><th>Интервал</th><th>p</th></tr></thead>
+        <tbody>
+          <tr><td><span class="sw plain"></span>Обычный тест</td><td>${spct(P.rel)}</td><td>${spct(P.lo)} … ${spct(P.hi)}</td><td>${fp(P.p)}</td></tr>
+          ${A ? `<tr><td><span class="sw adj"></span>С поправкой</td><td>${spct(A.rel)}</td><td>${spct(A.lo)} … ${spct(A.hi)}</td><td>${fp(A.p)}</td></tr>` : ""}
+        </tbody>
+      </table>
+      <p class="hint">Эффект указан относительно среднего в контрольной группе ${nf(r.meanA, 1)}. Значимым считается p меньше 0,05.</p>
+    </div>
+    <div class="sec ${srmBad ? "dim" : ""}">
+      <h3>Выигрыш <small>сколько игроков нужно для одинаковой точности</small></h3>
+      <div class="bars">
+        <div class="bar"><span>Обычный тест</span><div class="track"><div class="fill plain" style="width:100%">${fint(r.n * f)}</div></div></div>
+        <div class="bar"><span>С поправкой</span><div class="track"><div class="fill adj" style="width:${Math.max(8, 100 / f)}%">${fint(r.n)}</div></div></div>
+      </div>
+      <p class="verdict-sub">${gainTxt}</p>
+    </div>
+    <div class="sec">
+      <h3>Планирование следующего теста</h3>
+      <div class="plan">
+        <label class="field" style="flex:1"><span>Эффект, который нужно уметь заметить: <b id="mdeOut">${pct(S.mde, 1)}</b></span>
+          <input type="range" id="mde" min="0.005" max="0.15" step="0.005" value="${S.mde}"></label>
+        <label class="field"><span>Новых игроков в тесте в день</span><input type="number" id="perDay" min="100" step="100" value="${S.perDay}"></label>
+      </div>
+      <div id="planOut"></div>
+      <p class="hint">Расчет для мощности 80% и уровня значимости 5% при шуме, как в этих данных.</p>
+    </div>`;
+  $("report").innerHTML = html;
+  const planUpd = () => {
+    S.mde = parseFloat($("mde").value); S.perDay = Math.max(1, parseFloat($("perDay").value) || 3000);
+    $("mdeOut").textContent = pct(S.mde, 1);
+    const n1 = planN(r.vY, r.meanA, S.mde), n2 = planN(r.vAdj, r.meanA, S.mde);
+    const d1 = Math.ceil(2 * n1 / S.perDay), d2 = Math.ceil(2 * n2 / S.perDay);
+    $("planOut").innerHTML = `<table class="tbl"><thead><tr><th>Способ</th><th>Игроков в каждой группе</th><th>Дней теста</th></tr></thead><tbody>
+      <tr><td><span class="sw plain"></span>Обычный тест</td><td>${fint(n1)}</td><td>${fint(d1)}</td></tr>
+      ${r.fitted ? `<tr><td><span class="sw adj"></span>С поправкой</td><td>${fint(n2)}</td><td>${fint(d2)}</td></tr>` : ""}
+    </tbody></table>${Math.min(d1, r.fitted ? d2 : d1) > 90 ? '<p class="verdict-sub">Тест такой длины на практике не провести. Для этой метрики нужен другой подход: искать эффект крупнее, собрать более длинную предысторию или выбрать менее шумную метрику.</p>' : ""}`;
+  };
+  $("mde").addEventListener("input", planUpd);
+  $("perDay").addEventListener("change", planUpd);
+  planUpd();
+}
+
+function niceStep(span, maxTicks) {
+  const steps = [0.005, 0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5];
+  for (const s of steps) if (span / s <= maxTicks) return s;
+  return 10;
+}
+function forestSVG(r, truth) {
+  const rows = [{ k: "plain", l: "Обычный тест", ...r.res.plain }];
+  if (r.res.adj) rows.push({ k: "adj", l: "С поправкой", ...r.res.adj });
+  let lo = Math.min(0, ...rows.map((x) => x.lo)), hi = Math.max(0, ...rows.map((x) => x.hi));
+  if (truth != null) { lo = Math.min(lo, truth); hi = Math.max(hi, truth); }
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  const W = 640, L = 140, R = 620, top = 30, rh = 44, H = top + rows.length * rh + 34;
+  const x = (v) => L + (v - lo) / (hi - lo) * (R - L);
+  const step = niceStep(hi - lo, 7);
+  let t = "";
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) {
+    t += `<line class="axis" x1="${x(v)}" x2="${x(v)}" y1="${top - 6}" y2="${H - 26}"/><text x="${x(v)}" y="${H - 8}" text-anchor="middle">${spct(Math.abs(v) < 1e-12 ? 0 : v, step < 0.01 ? 1 : 0)}</text>`;
+  }
+  const tr = truth == null || truth >= 0;
+  t += `<line class="zero" x1="${x(0)}" x2="${x(0)}" y1="${top - 10}" y2="${H - 26}"/><text x="${x(0) + (tr ? -5 : 5)}" y="${top - 16}" text-anchor="${tr ? "end" : "start"}">нет эффекта</text>`;
+  if (truth != null) t += `<line class="truthl" x1="${x(truth)}" x2="${x(truth)}" y1="${top - 10}" y2="${H - 26}"/><text class="truthl-t" x="${x(truth) + (tr ? 5 : -5)}" y="${top - 16}" text-anchor="${tr ? "start" : "end"}">заложено ${spct(truth, 0)}</text>`;
+  rows.forEach((rw, i) => {
+    const y = top + i * rh + rh / 2;
+    t += `<text class="lbl" x="0" y="${y + 4}">${rw.l}</text>
+      <line class="ci ${rw.k}" x1="${x(rw.lo)}" x2="${x(rw.hi)}" y1="${y}" y2="${y}"/>
+      <line class="${rw.k}" stroke-width="2" x1="${x(rw.lo)}" x2="${x(rw.lo)}" y1="${y - 7}" y2="${y + 7}"/>
+      <line class="${rw.k}" stroke-width="2" x1="${x(rw.hi)}" x2="${x(rw.hi)}" y1="${y - 7}" y2="${y + 7}"/>
+      <circle class="${rw.k}" cx="${x(rw.rel)}" cy="${y}" r="6.5"/>`;
+  });
+  return `<svg class="plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="Интервалы эффекта">${t}</svg>`;
+}
+
+// ---------- песочница ----------
+const SB = ["rho", "newb", "eff", "n", "cv"];
+SB.forEach((k) => $("s-" + k).addEventListener("input", () => { $("mcOut").textContent = ""; renderSandbox(); }));
+function sbVals() {
+  return { rho: +$("s-rho").value, newb: +$("s-newb").value, eff: +$("s-eff").value, n: +$("s-n").value, cv: +$("s-cv").value };
+}
+function powerAt(e, cv, n, f) {
+  const se = cv * Math.sqrt(4 / n) * Math.sqrt(f), Z = 1.959964;
+  return Phi(e / se - Z) + Phi(-e / se - Z);
+}
+function renderSandbox() {
+  const v = sbVals();
+  $("o-rho").textContent = nf(v.rho, 2); $("o-newb").textContent = pct(v.newb, 0);
+  $("o-eff").textContent = spct(v.eff, 1); $("o-n").textContent = fint(v.n); $("o-cv").textContent = nf(v.cv, 1);
+  const h = 1 - v.newb, f = h * (1 - v.rho * v.rho) + (1 - h);
+  const pp = powerAt(v.eff, v.cv, v.n, 1), pa = powerAt(v.eff, v.cv, v.n, f);
+  $("sb-pp").textContent = pct(pp, 0); $("sb-pa").textContent = pct(pa, 0);
+  $("sb-text").textContent = f < 0.97
+    ? `Поправка оставляет ${pct(f, 0)} исходного шума, поэтому для той же точности нужно в ${nf(1 / f, 1)} раза меньше игроков. Чем сильнее связь с прошлым и чем меньше новичков, тем больше выигрыш.`
+    : "При такой слабой связи с прошлым или такой доле новичков поправка почти ничего не дает.";
+  // график
+  const W = 640, Hh = 260, L = 46, R = 604, T = 14, B = 222;
+  const nMax = 200000, X = (n) => L + n / nMax * (R - L), Y = (p) => B - p * (B - T);
+  let s = "";
+  for (let p = 0; p <= 1.0001; p += 0.2) s += `<line class="axis" x1="${L}" x2="${R}" y1="${Y(p)}" y2="${Y(p)}"/><text x="${L - 8}" y="${Y(p) + 4}" text-anchor="end">${Math.round(p * 100)}%</text>`;
+  for (let n = 0; n <= nMax; n += 50000) s += `<text x="${X(n)}" y="${B + 20}" text-anchor="${n === nMax ? "end" : "middle"}">${n === 0 ? "0" : fint(n / 1000) + " тыс."}</text>`;
+  s += `<line class="ref" x1="${L}" x2="${R}" y1="${Y(0.8)}" y2="${Y(0.8)}"/>`;
+  const line = (ff, cls) => {
+    const pts = []; for (let i = 1; i <= 80; i++) { const n = i * nMax / 80; pts.push(`${X(n).toFixed(1)},${Y(powerAt(v.eff, v.cv, n, ff)).toFixed(1)}`); }
+    return `<polyline class="${cls}" fill="none" stroke-width="2.5" points="${pts.join(" ")}" style="fill:none"/>`;
+  };
+  s += line(1, "plain") + line(f, "adj");
+  s += `<line class="cur" x1="${X(v.n)}" x2="${X(v.n)}" y1="${T}" y2="${B}"/>`;
+  s += `<circle class="plain" cx="${X(v.n)}" cy="${Y(pp)}" r="4.5"/><circle class="adj" cx="${X(v.n)}" cy="${Y(pa)}" r="4.5"/>`;
+  $("sb-chart").innerHTML = s;
+}
+$("mcBtn").addEventListener("click", () => {
+  const v = sbVals(), reps = 200, rng = makeRng(Math.floor(Math.random() * 1e9));
+  const btn = $("mcBtn"); btn.disabled = true;
+  let done = 0, hitP = 0, hitA = 0;
+  const chunk = () => {
+    const until = Math.min(reps, done + 10);
+    for (; done < until; done++) {
+      let sA = 0, qA = 0, nA = 0, sB = 0, qB = 0, nB = 0;
+      const xs = new Float64Array(v.n), ys = new Float64Array(v.n), tb = new Uint8Array(v.n), hs = new Uint8Array(v.n);
+      let sx = 0, nh = 0;
+      for (let i = 0; i < v.n; i++) {
+        const z1 = rng.normal(), z2 = rng.normal(), b = rng.u() < 0.5 ? 1 : 0, has = rng.u() >= v.newb ? 1 : 0;
+        const y = 1 + v.cv * (v.rho * z1 + Math.sqrt(1 - v.rho * v.rho) * z2) + (b ? v.eff : 0);
+        xs[i] = z1; ys[i] = y; tb[i] = b; hs[i] = has;
+        if (has) { sx += z1; nh++; }
+        if (b) { sB += y; qB += y * y; nB++; } else { sA += y; qA += y * y; nA++; }
+      }
+      const mA = sA / nA, mB = sB / nB, vA = (qA - nA * mA * mA) / (nA - 1), vB = (qB - nB * mB * mB) / (nB - 1);
+      if (Math.abs((mB - mA) / Math.sqrt(vA / nA + vB / nB)) > 1.959964) hitP++;
+      const mx = sx / Math.max(1, nh); let cxy = 0, vx = 0, my = 0;
+      for (let i = 0; i < v.n; i++) if (hs[i]) my += ys[i]; my /= Math.max(1, nh);
+      for (let i = 0; i < v.n; i++) if (hs[i]) { cxy += (xs[i] - mx) * (ys[i] - my); vx += (xs[i] - mx) ** 2; }
+      const th = vx > 0 ? cxy / vx : 0;
+      let a1 = 0, q1 = 0, n1 = 0, a2 = 0, q2 = 0, n2 = 0;
+      for (let i = 0; i < v.n; i++) {
+        const ya = hs[i] ? ys[i] - th * (xs[i] - mx) : ys[i];
+        if (tb[i]) { a2 += ya; q2 += ya * ya; n2++; } else { a1 += ya; q1 += ya * ya; n1++; }
+      }
+      const m1 = a1 / n1, m2 = a2 / n2, v1 = (q1 - n1 * m1 * m1) / (n1 - 1), v2 = (q2 - n2 * m2 * m2) / (n2 - 1);
+      if (Math.abs((m2 - m1) / Math.sqrt(v1 / n1 + v2 / n2)) > 1.959964) hitA++;
+    }
+    $("mcOut").textContent = `Идет моделирование: ${done} из ${reps}`;
+    if (done < reps) setTimeout(chunk, 0);
+    else {
+      $("mcOut").innerHTML = `Моделирование, ${reps} повторов: обычный тест нашел эффект в <b>${pct(hitP / reps, 0)}</b> случаев, с поправкой в <b>${pct(hitA / reps, 0)}</b>. Расхождение с расчетом в несколько процентов нормально при 200 повторах.`;
+      btn.disabled = false;
+    }
+  };
+  chunk();
+});
+
+loadScenario();
+renderSandbox();
+})();
+</script>
+</body>
+</html>
